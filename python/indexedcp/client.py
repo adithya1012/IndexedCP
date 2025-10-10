@@ -11,8 +11,9 @@ import requests
 import sqlite3
 import hashlib
 import getpass
+import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 from dataclasses import dataclass
 
 
@@ -28,16 +29,21 @@ class ChunkRecord:
 class IndexCPClient:
     """Python client for IndexedCP file transfer system."""
     
-    def __init__(self, db_name: str = "indexcp", chunk_size: int = 1024 * 1024):
+    def __init__(self, db_name: str = "indexcp", chunk_size: int = 1024 * 1024,
+                 max_retries: int = 3, initial_retry_delay: float = 1.0):
         """
         Initialize the IndexedCP client.
         
         Args:
             db_name: Name of the database for storing chunks
             chunk_size: Size of each chunk in bytes (default: 1MB)
+            max_retries: Maximum number of retry attempts (default: 3)
+            initial_retry_delay: Initial delay for exponential backoff in seconds (default: 1.0)
         """
         self.db_name = db_name
         self.chunk_size = chunk_size
+        self.max_retries = max_retries
+        self.initial_retry_delay = initial_retry_delay
         self.api_key: Optional[str] = None
         self.db_path = self._get_db_path()
         self._init_db()
@@ -165,18 +171,34 @@ class IndexCPClient:
             # Sort chunks by index (already sorted by SQL query, but being explicit)
             chunks.sort(key=lambda x: x[2])  # chunk_index column
             
-            server_filename = None
+            # Get server filename from first chunk's response
+            server_filename = Path(file_name).name
+            
+            # Check which chunks have already been received (resume support)
+            received_chunks = self._get_received_chunks(server_url, server_filename, api_key)
+            if received_chunks:
+                print(f"Resume detected: {len(received_chunks)} chunks already received")
             
             for chunk_record in chunks:
                 chunk_id, _, chunk_index, chunk_data = chunk_record
+                
+                # Skip already received chunks
+                if chunk_index in received_chunks:
+                    print(f"Skipping chunk {chunk_index} (already received)")
+                    # Remove from buffer since it's already on server
+                    with sqlite3.connect(self.db_path) as conn:
+                        conn.execute("DELETE FROM chunks WHERE id = ?", (chunk_id,))
+                        conn.commit()
+                    continue
+                
                 print(f"Uploading chunk {chunk_index} for {file_name}")
                 
-                response_data = self.upload_chunk(
+                response_data = self._upload_chunk_with_retry(
                     server_url, chunk_data, chunk_index, file_name, api_key
                 )
                 
-                # Capture server-determined filename from first chunk response
-                if response_data and response_data.get("actualFilename") and not server_filename:
+                # Capture server-determined filename from response
+                if response_data and response_data.get("actualFilename"):
                     server_filename = response_data["actualFilename"]
                 
                 # Remove uploaded chunk from buffer
@@ -185,9 +207,9 @@ class IndexCPClient:
                     conn.commit()
             
             # Store the mapping of client filename to server filename
-            upload_results[file_name] = server_filename or Path(file_name).name
+            upload_results[file_name] = server_filename
             
-            if server_filename and server_filename != Path(file_name).name:
+            if server_filename != Path(file_name).name:
                 print(f"Upload complete for {file_name} -> Server saved as: {server_filename}")
             else:
                 print(f"Upload complete for {file_name}")
@@ -258,6 +280,72 @@ class IndexCPClient:
             print(error_msg)
             raise requests.RequestException(error_msg) from e
     
+    def _upload_chunk_with_retry(self, server_url: str, chunk_data: bytes, index: int,
+                                 file_name: str, api_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Upload a chunk with automatic retry and exponential backoff.
+        
+        Args:
+            server_url: URL of the upload endpoint
+            chunk_data: Raw chunk data
+            index: Chunk index
+            file_name: Original file name
+            api_key: API key for authentication
+            
+        Returns:
+            Response data from server
+            
+        Raises:
+            requests.RequestException: If all retries fail
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                return self.upload_chunk(server_url, chunk_data, index, file_name, api_key)
+            except requests.RequestException as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    delay = self.initial_retry_delay * (2 ** attempt)
+                    print(f"Retry {attempt + 1}/{self.max_retries} after {delay}s...")
+                    time.sleep(delay)
+                else:
+                    print(f"All {self.max_retries} retry attempts failed")
+        
+        raise last_exception
+    
+    def _get_received_chunks(self, server_url: str, filename: str, api_key: str) -> Set[int]:
+        """
+        Get the set of chunks already received by the server for resume support.
+        
+        Args:
+            server_url: Base URL of the server
+            filename: Name of the file on the server
+            api_key: API key for authentication
+            
+        Returns:
+            Set of chunk indices already received
+        """
+        try:
+            # Extract base URL from upload endpoint
+            base_url = server_url.rsplit('/upload', 1)[0]
+            status_url = f"{base_url}/upload/status?filename={filename}"
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            response = requests.get(status_url, headers=headers, timeout=5)
+            response.raise_for_status()
+            
+            data = response.json()
+            return set(data.get('receivedChunks', []))
+            
+        except Exception as e:
+            # If status check fails, assume no chunks received (fresh upload)
+            print(f"Could not check upload status (proceeding with full upload): {e}")
+            return set()
+    
     def buffer_and_upload(self, file_path: str, server_url: str):
         """
         Convenience method to buffer a file and immediately upload it.
@@ -274,6 +362,12 @@ class IndexCPClient:
             raise FileNotFoundError(f"File not found: {file_path}")
         
         chunk_index = 0
+        server_filename = Path(file_path).name
+        
+        # Check for resume support
+        received_chunks = self._get_received_chunks(server_url, server_filename, api_key)
+        if received_chunks:
+            print(f"Resume detected: {len(received_chunks)} chunks already received")
         
         with open(file_path, "rb") as f:
             while True:
@@ -281,7 +375,11 @@ class IndexCPClient:
                 if not chunk_data:
                     break
                 
-                self.upload_chunk(server_url, chunk_data, chunk_index, str(file_path), api_key)
+                if chunk_index in received_chunks:
+                    print(f"Skipping chunk {chunk_index} (already received)")
+                else:
+                    self._upload_chunk_with_retry(server_url, chunk_data, chunk_index, str(file_path), api_key)
+                
                 chunk_index += 1
         
         print("Upload complete.")

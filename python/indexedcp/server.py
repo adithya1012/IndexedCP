@@ -9,8 +9,9 @@ import os
 import json
 import secrets
 import threading
+import sqlite3
 from pathlib import Path
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Set
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -31,7 +32,10 @@ class IndexCPRequestHandler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET requests."""
-        self._send_404()
+        if self.path.startswith('/upload/status'):
+            self._handle_status()
+        else:
+            self._send_404()
     
     def do_OPTIONS(self):
         """Handle OPTIONS requests for CORS preflight."""
@@ -70,6 +74,18 @@ class IndexCPRequestHandler(BaseHTTPRequestHandler):
                 # Default behavior: use basename of client-provided filename
                 actual_filename = os.path.basename(client_filename)
             
+            # Check if chunk already received (for resume support)
+            if self.server_instance.is_chunk_received(actual_filename, int(chunk_index)):
+                response_data = {
+                    'message': 'Chunk already received (skipped)',
+                    'actualFilename': actual_filename,
+                    'chunkIndex': int(chunk_index),
+                    'clientFilename': client_filename,
+                    'alreadyReceived': True
+                }
+                self._send_json_response(200, response_data)
+                return
+            
             # Create output file path
             output_file = os.path.join(self.server_instance.output_dir, actual_filename)
             
@@ -79,6 +95,9 @@ class IndexCPRequestHandler(BaseHTTPRequestHandler):
             # Append chunk to file
             with open(output_file, 'ab') as f:
                 f.write(chunk_data)
+            
+            # Track received chunk
+            self.server_instance.mark_chunk_received(actual_filename, int(chunk_index))
             
             print(f"Chunk {chunk_index} received for {client_filename} -> {actual_filename}")
             
@@ -120,6 +139,39 @@ class IndexCPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'Not Found')
     
+    def _handle_status(self):
+        """Handle status check request for resume support."""
+        # Check API key authentication
+        auth_header = self.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            self._send_error(401, 'Invalid or missing API key')
+            return
+        
+        provided_api_key = auth_header[7:]
+        if provided_api_key != self.server_instance.api_key:
+            self._send_error(401, 'Invalid or missing API key')
+            return
+        
+        # Get filename from query parameters
+        from urllib.parse import parse_qs, urlparse
+        parsed = urlparse(self.path)
+        query_params = parse_qs(parsed.query)
+        filename = query_params.get('filename', [None])[0]
+        
+        if not filename:
+            self._send_error(400, 'Missing filename parameter')
+            return
+        
+        # Get received chunks for this file
+        received_chunks = self.server_instance.get_received_chunks(filename)
+        
+        response_data = {
+            'filename': filename,
+            'receivedChunks': list(received_chunks)
+        }
+        
+        self._send_json_response(200, response_data)
+    
     # def log_message(self, format, *args):
     #     """Override to suppress default logging."""
     #     pass
@@ -149,10 +201,54 @@ class IndexCPServer:
         
         # Ensure output directory exists
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        # Initialize chunk tracking database
+        self._init_chunk_tracking()
     
     def generate_api_key(self) -> str:
         """Generate a secure random API key."""
         return secrets.token_hex(32)
+    
+    def _init_chunk_tracking(self):
+        """Initialize chunk tracking database."""
+        self.chunk_db_path = os.path.join(self.output_dir, '.indexcp_chunks.db')
+        with sqlite3.connect(self.chunk_db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS received_chunks (
+                    filename TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (filename, chunk_index)
+                )
+            """)
+            conn.commit()
+    
+    def mark_chunk_received(self, filename: str, chunk_index: int):
+        """Mark a chunk as received."""
+        with sqlite3.connect(self.chunk_db_path) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO received_chunks (filename, chunk_index) VALUES (?, ?)",
+                (filename, chunk_index)
+            )
+            conn.commit()
+    
+    def is_chunk_received(self, filename: str, chunk_index: int) -> bool:
+        """Check if a chunk has been received."""
+        with sqlite3.connect(self.chunk_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT 1 FROM received_chunks WHERE filename = ? AND chunk_index = ?",
+                (filename, chunk_index)
+            )
+            return cursor.fetchone() is not None
+    
+    def get_received_chunks(self, filename: str) -> Set[int]:
+        """Get set of received chunk indices for a file."""
+        with sqlite3.connect(self.chunk_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT chunk_index FROM received_chunks WHERE filename = ? ORDER BY chunk_index",
+                (filename,)
+            )
+            return set(row[0] for row in cursor.fetchall())
     
     def create_server(self) -> HTTPServer:
         """Create and configure the HTTP server."""
