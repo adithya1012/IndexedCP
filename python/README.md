@@ -7,6 +7,8 @@ A complete Python implementation of IndexedCP for secure, efficient, and resumab
 - **Complete Implementation**: Both client and server in Python
 - **Chunked file transfer** with configurable chunk sizes
 - **SQLite-based buffering** for reliable, resumable uploads
+- **Automatic retry with exponential backoff** for failed uploads
+- **Resumable uploads** from failure points (server-side chunk tracking)
 - **API key authentication** for secure transfers
 - **CLI and library interfaces** for flexibility
 - **Cross-platform compatibility** (Windows, macOS, Linux)
@@ -35,13 +37,16 @@ pip install -r requirements.txt
 ```python
 from indexedcp import IndexCPClient
 
-# Create client
-client = IndexCPClient()
+# Create client with retry configuration
+client = IndexCPClient(
+    max_retries=5,              # Retry failed uploads (default: 3)
+    initial_retry_delay=1.0     # Exponential backoff starting delay (default: 1.0)
+)
 
 # Add file to buffer
 client.add_file('./myfile.txt')
 
-# Upload to server
+# Upload to server (with automatic retry and resume)
 results = client.upload_buffered_files('http://localhost:3000/upload')
 print(f"Upload results: {results}")
 
@@ -106,6 +111,71 @@ python3 bin/indexcp-server --api-key my-secret-key
 python3 bin/indexcp-server --simple
 ```
 
+## Resume & Retry Features
+
+### Automatic Retry with Exponential Backoff
+
+Failed chunk uploads are automatically retried with increasing delays between attempts:
+
+```python
+from indexedcp import IndexCPClient
+
+# Configure retry behavior
+client = IndexCPClient(
+    max_retries=5,              # Retry up to 5 times
+    initial_retry_delay=1.0     # Start with 1s, then 2s, 4s, 8s, 16s
+)
+
+# Uploads will automatically retry on failure
+client.buffer_and_upload('./myfile.txt', 'http://localhost:3000/upload')
+```
+
+### Resumable Uploads
+
+Uploads can be resumed from the point of failure. The server tracks received chunks, and the client skips already-uploaded chunks:
+
+```python
+from indexedcp import IndexCPClient
+
+client = IndexCPClient()
+
+# Add file to buffer
+client.add_file('./large_file.zip')
+
+# Start upload (may fail partway through)
+try:
+    client.upload_buffered_files('http://localhost:3000/upload')
+except Exception as e:
+    print(f"Upload interrupted: {e}")
+
+# Resume later - only missing chunks will be uploaded
+client.upload_buffered_files('http://localhost:3000/upload')
+```
+
+### Server-Side Chunk Tracking
+
+The server maintains a SQLite database (`.indexcp_chunks.db`) to track received chunks:
+
+- Duplicate chunks are automatically detected and skipped
+- Status endpoint (`/upload/status?filename=<name>`) returns received chunks
+- Enables resume capability across client restarts
+
+**Query upload status:**
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  "http://localhost:3000/upload/status?filename=myfile.txt"
+```
+
+**Response:**
+
+```json
+{
+  "filename": "myfile.txt",
+  "receivedChunks": [0, 1, 2, 5, 7]
+}
+```
+
 ## API Reference
 
 ### IndexCPClient Class
@@ -113,11 +183,13 @@ python3 bin/indexcp-server --simple
 #### Constructor
 
 ```python
-IndexCPClient(db_name="indexcp", chunk_size=1024*1024)
+IndexCPClient(db_name="indexcp", chunk_size=1024*1024, max_retries=3, initial_retry_delay=1.0)
 ```
 
 - `db_name`: Name of the SQLite database for storing chunks
 - `chunk_size`: Size of each chunk in bytes (default: 1MB)
+- `max_retries`: Maximum retry attempts for failed uploads (default: 3)
+- `initial_retry_delay`: Initial delay in seconds for exponential backoff (default: 1.0)
 
 #### Methods
 
@@ -415,6 +487,12 @@ Run integration tests (requires both client and server):
 python3 test_integration.py
 ```
 
+Run resume and retry feature tests:
+
+```bash
+python3 test_resume_retry.py
+```
+
 Run all examples:
 
 ```bash
@@ -457,9 +535,13 @@ Both implementations use the same HTTP-based protocol:
 - ✓ API key authentication
 - ✓ Custom filename generators
 - ✓ SQLite buffering (client-side)
-- ✓ Resumable uploads
+- ✓ Resumable uploads (Python only)
+- ✓ Automatic retry with exponential backoff (Python only)
+- ✓ Server-side chunk tracking (Python only)
 - ✓ CLI interfaces
 - ✓ Error handling
+
+**Note:** The Python implementation includes advanced features (retry, resume, chunk tracking) not available in the Node.js version.
 
 ## Error Handling
 

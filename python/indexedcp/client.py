@@ -90,7 +90,6 @@ class IndexCPClient:
     def add_file(self, file_path: str) -> int:
         """
         Add a file to the buffer by splitting it into chunks.
-        
         Args:
             file_path: Path to the file to add
             
