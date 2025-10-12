@@ -250,6 +250,21 @@ class IndexCPServer:
             )
             return set(row[0] for row in cursor.fetchall())
     
+    def clear_chunk_tracking(self, filename: Optional[str] = None):
+        """
+        Clear chunk tracking records.
+        
+        Args:
+            filename: If provided, clear only records for this file.
+                     If None, clear all records.
+        """
+        with sqlite3.connect(self.chunk_db_path) as conn:
+            if filename:
+                conn.execute("DELETE FROM received_chunks WHERE filename = ?", (filename,))
+            else:
+                conn.execute("DELETE FROM received_chunks")
+            conn.commit()
+    
     def create_server(self) -> HTTPServer:
         """Create and configure the HTTP server."""
         def handler_factory(*args, **kwargs):

@@ -153,6 +153,38 @@ def test_resume_capability():
                 
                 chunk_index += 1
         
+        # Verify all chunks were uploaded
+        print("\n5. Verifying complete upload...")
+        final_received_chunks = server.get_received_chunks(filename)
+        print(f"   Final server chunks: {sorted(final_received_chunks)}")
+        
+        expected_chunks = set(range(chunk_index))
+        if final_received_chunks != expected_chunks:
+            print(f"   ✗ Chunk mismatch: expected {sorted(expected_chunks)}, got {sorted(final_received_chunks)}")
+            return False
+        
+        print(f"   ✓ All {chunk_index} chunks tracked on server")
+        
+        # Verify uploaded file content matches original
+        print("\n6. Verifying file integrity...")
+        uploaded_file = uploads_dir / filename
+        
+        if not uploaded_file.exists():
+            print(f"   ✗ Uploaded file not found: {uploaded_file}")
+            return False
+        
+        with open(test_file, "rb") as original, open(uploaded_file, "rb") as uploaded:
+            original_content = original.read()
+            uploaded_content = uploaded.read()
+            
+            if original_content != uploaded_content:
+                print(f"   ✗ File content mismatch!")
+                print(f"      Original size: {len(original_content)} bytes")
+                print(f"      Uploaded size: {len(uploaded_content)} bytes")
+                return False
+        
+        print(f"   ✓ File integrity verified ({len(original_content)} bytes)")
+        
         print("\n✓ Resume test completed successfully")
         return True
         
@@ -164,18 +196,30 @@ def test_resume_capability():
         
     finally:
         # Clean up
-        server.close()
-        test_file.unlink(missing_ok=True)
+        if 'server' in locals() and server:
+            # Clear chunk tracking on server
+            try:
+                server.clear_chunk_tracking()
+                print("\n   Server chunk tracking cleared")
+            except Exception as e:
+                print(f"\n   Warning: Could not clear server chunk tracking: {e}")
+            server.close()
+        
+        if 'test_file' in locals():
+            test_file.unlink(missing_ok=True)
         
         if uploads_dir.exists():
             for f in uploads_dir.glob("*"):
                 if not f.name.startswith('.'):
                     f.unlink(missing_ok=True)
             # Also remove the chunk tracking database
-            (uploads_dir / '.indexcp_chunks.db').unlink(missing_ok=True)
+            chunk_db = uploads_dir / '.indexcp_chunks.db'
+            if chunk_db.exists():
+                chunk_db.unlink(missing_ok=True)
             uploads_dir.rmdir()
         
-        client.clear_buffer()
+        if 'client' in locals():
+            client.clear_buffer()
 
 
 def test_chunk_deduplication():
@@ -241,17 +285,28 @@ def test_chunk_deduplication():
         return False
         
     finally:
-        server.close()
-        test_file.unlink(missing_ok=True)
+        if 'server' in locals() and server:
+            # Clear chunk tracking on server
+            try:
+                server.clear_chunk_tracking()
+            except Exception as e:
+                print(f"Warning: Could not clear server chunk tracking: {e}")
+            server.close()
+        
+        if 'test_file' in locals():
+            test_file.unlink(missing_ok=True)
         
         if uploads_dir.exists():
             for f in uploads_dir.glob("*"):
                 if not f.name.startswith('.'):
                     f.unlink(missing_ok=True)
-            (uploads_dir / '.indexcp_chunks.db').unlink(missing_ok=True)
+            chunk_db = uploads_dir / '.indexcp_chunks.db'
+            if chunk_db.exists():
+                chunk_db.unlink(missing_ok=True)
             uploads_dir.rmdir()
         
-        client.clear_buffer()
+        if 'client' in locals():
+            client.clear_buffer()
 
 
 def main():
