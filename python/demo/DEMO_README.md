@@ -1,32 +1,38 @@
-# IndexedCP Python Demo
+# IndexedCP Python Client Demo
 
-A simple demonstration of the IndexedCP Python implementation showing file upload with real-time progress tracking.
+A simple demonstration of the IndexedCP Python client showing file upload with real-time progress tracking to a Node.js IndexedCP server.
 
 ## 📁 Files
 
-- `server_demo.py` - Server that receives file uploads
 - `client_demo.py` - Client with progress bar and statistics
+- `client_resumable_demo.py` - Client with resumable upload demonstration
 - `sample_file.txt` - Sample file for testing
 - `DEMO_README.md` - This file
 
 ## 🚀 How to Run the Demo
 
-### Step 1: Start the Server (Terminal 1)
+### Step 1: Start the Node.js Server (Terminal 1)
 
 ```bash
-cd python/demo
-python server_demo.py
+# Navigate to the root IndexedCP directory
+cd ../..
+
+# Install dependencies
+npm install
+
+# Start the server
+node examples/server.js
 ```
 
-**Important:** Note the API key from the output: `demo-key-2024`
+**Important:** Note the API key from the server output.
 
 ### Step 2: Upload a File (Terminal 2)
 
 ```bash
 cd python/demo
 
-# Set the API key (required!)
-export INDEXCP_API_KEY=demo-key-2024
+# Set the API key (use the one from server output)
+export INDEXCP_API_KEY=<api-key-from-server>
 
 # Upload sample file with small chunks (creates ~74 chunks for nice progress demo)
 python client_demo.py sample_file.txt 10
@@ -43,26 +49,19 @@ python client_demo.py /path/to/your/file.pdf 256
 
 ## 📊 What You'll See
 
-### Server Terminal:
+### Server Terminal (Node.js):
 
 ```
-============================================================
-IndexedCP Demo Server
-============================================================
-
-📋 Server Configuration:
-   Port: 3000
-   API Key: demo-key-2024
-   Output Directory: ./uploads
-
-✅ Server is running and ready to receive files!
+Server listening on http://localhost:3000
+API Key: <generated-api-key>
+Include this API key in requests using the Authorization: Bearer <token> header
 
 Chunk 0 received for sample_file.txt -> sample_file.txt
 Chunk 1 received for sample_file.txt -> sample_file.txt
 ...
 ```
 
-### Client Terminal:
+### Client Terminal (Python):
 
 ```
 ============================================================

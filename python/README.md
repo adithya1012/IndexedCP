@@ -1,10 +1,10 @@
-# IndexedCP Python Implementation
+# IndexedCP Python Client
 
-A complete Python implementation of IndexedCP for secure, efficient, and resumable file transfer. This package includes both client and server implementations that are fully compatible with the Node.js IndexedCP server and client.
+Python client implementation for IndexedCP - a secure, efficient, and resumable file transfer system. This client is fully compatible with the Node.js IndexedCP server.
 
 ## Features
 
-- **Complete Implementation**: Both client and server in Python
+- **Client-only implementation** - Works with Node.js IndexedCP server
 - **Chunked file transfer** with configurable chunk sizes
 - **SQLite-based buffering** for reliable, resumable uploads
 - **Automatic retry with exponential backoff** for failed uploads
@@ -12,7 +12,7 @@ A complete Python implementation of IndexedCP for secure, efficient, and resumab
 - **API key authentication** for secure transfers
 - **CLI and library interfaces** for flexibility
 - **Cross-platform compatibility** (Windows, macOS, Linux)
-- **Full compatibility** with Node.js IndexedCP implementation
+- **Full compatibility** with Node.js IndexedCP server
 
 ## Installation
 
@@ -29,6 +29,20 @@ pip install -r requirements.txt
 - Python 3.7+
 - `requests` library for HTTP operations
 - SQLite3 (included with Python)
+
+## Server Setup
+
+This Python package provides the **client only**. You need to run the Node.js IndexedCP server to receive uploads.
+
+### Start the Node.js Server
+
+```bash
+# In the root IndexedCP directory
+npm install
+node examples/server.js
+```
+
+The server will display an API key that you'll need for uploads.
 
 ## Quick Start
 
@@ -54,22 +68,6 @@ print(f"Upload results: {results}")
 client.buffer_and_upload('./myfile.txt', 'http://localhost:3000/upload')
 ```
 
-### Server Library Usage
-
-```python
-from indexedcp import IndexCPServer
-
-# Create and start server
-server = IndexCPServer(
-    output_dir="./uploads",
-    port=3000,
-    api_key="your-secure-api-key"
-)
-
-# Start server (blocking)
-server.listen()
-```
-
 ### Client CLI Usage
 
 ```bash
@@ -90,25 +88,6 @@ python3 bin/indexcp buffer-and-upload ./myfile.txt http://localhost:3000/upload
 
 # Clear buffer
 python3 bin/indexcp clear
-```
-
-### Server CLI Usage
-
-```bash
-# Start server with default settings
-python3 bin/indexcp-server
-
-# Start server on custom port
-python3 bin/indexcp-server --port 8080
-
-# Start server with custom output directory
-python3 bin/indexcp-server --output-dir ./uploads
-
-# Start server with custom API key
-python3 bin/indexcp-server --api-key my-secret-key
-
-# Start simple server without authentication (development only)
-python3 bin/indexcp-server --simple
 ```
 
 ## Resume & Retry Features
@@ -233,76 +212,6 @@ Get API key from environment variable or user input.
 - **Returns**: API key string
 - **Note**: Checks `INDEXCP_API_KEY` environment variable first, then prompts user
 
-### IndexCPServer Class
-
-#### Constructor
-
-```python
-IndexCPServer(output_dir=None, port=3000, api_key=None, filename_generator=None)
-```
-
-- `output_dir`: Directory to save uploaded files (default: current directory)
-- `port`: Port to listen on (default: 3000)
-- `api_key`: API key for authentication (default: auto-generated)
-- `filename_generator`: Optional custom filename generator function
-
-#### Methods
-
-##### `listen(port=None, callback=None)`
-
-Start the server (blocking call).
-
-- **port**: Port to listen on (overrides constructor port)
-- **callback**: Optional callback function to call after server starts
-
-##### `start(callback=None)`
-
-Start the server in a separate thread (non-blocking).
-
-- **callback**: Optional callback function to call after server starts
-
-##### `close()`
-
-Stop the server.
-
-##### `generate_api_key() -> str`
-
-Generate a secure random API key.
-
-- **Returns**: 64-character hex API key
-
-#### Custom Filename Generator
-
-You can provide a custom filename generator function:
-
-```python
-def custom_filename_generator(client_filename, chunk_index, request_handler):
-    """
-    Custom filename generator function.
-
-    Args:
-        client_filename: Original filename from client
-        chunk_index: Current chunk index
-        request_handler: HTTP request handler instance
-
-    Returns:
-        Generated filename to use on server
-    """
-    return f"custom_{os.path.basename(client_filename)}"
-
-server = IndexCPServer(filename_generator=custom_filename_generator)
-```
-
-### Utility Functions
-
-##### `create_simple_server(output_file=None, port=3000) -> HTTPServer`
-
-Create a simple server for basic uploads without authentication.
-
-- **output_file**: File to save uploads to (default: uploaded_file.txt)
-- **port**: Port to listen on
-- **Returns**: HTTPServer instance
-
 ## Configuration
 
 ### API Key Authentication
@@ -371,6 +280,37 @@ if __name__ == "__main__":
     upload_example()
 ```
 
+### Streaming Upload Example
+
+```python
+from indexedcp import IndexCPClient
+
+def streaming_upload(file_path, server_url):
+    """Upload file in streaming fashion (chunk by chunk)."""
+    client = IndexCPClient(chunk_size=1024*1024)  # 1MB chunks
+
+    with open(file_path, 'rb') as f:
+        chunk_index = 0
+        while True:
+            chunk_data = f.read(client.chunk_size)
+            if not chunk_data:
+                break
+
+            # Upload chunk immediately
+            client.upload_chunk(server_url, chunk_data, chunk_index, file_path)
+            print(f"Uploaded chunk {chunk_index}")
+            chunk_index += 1
+
+    print("Streaming upload complete!")
+
+# Usage
+streaming_upload('./large_file.zip', 'http://localhost:3000/upload')
+```
+
+## Testing
+
+````
+
 ### Basic Server Example
 
 ```python
@@ -390,7 +330,7 @@ def server_example():
 
 if __name__ == "__main__":
     server_example()
-```
+````
 
 ### Complete Client-Server Example
 
@@ -472,53 +412,17 @@ streaming_upload('./large_file.zip', 'http://localhost:3000/upload')
 Run the client test suite:
 
 ```bash
+cd python
 python3 test_client.py
-```
-
-Run the server test suite:
-
-```bash
-python3 test_server.py
-```
-
-Run integration tests (requires both client and server):
-
-```bash
-python3 test_integration.py
-```
-
-Run resume and retry feature tests:
-
-```bash
-python3 test_resume_retry.py
-```
-
-Run all examples:
-
-```bash
-# Basic server
-python3 examples/server_basic.py
-
-# Server with custom filenames
-python3 examples/server_custom_filename.py
-
-# Simple server (no auth)
-python3 examples/server_simple.py
-
-# Complete demo
-python3 examples/complete_demo.py
 ```
 
 ## Compatibility
 
-This Python implementation is fully compatible with the Node.js IndexedCP implementation:
+This Python client is fully compatible with the Node.js IndexedCP server.
 
 **Client Compatibility:**
 
-- Python client ↔ Python server ✓
 - Python client ↔ Node.js server ✓
-- Node.js client ↔ Python server ✓
-- Node.js client ↔ Node.js server ✓
 
 **Protocol Compatibility:**
 Both implementations use the same HTTP-based protocol:
@@ -529,19 +433,15 @@ Both implementations use the same HTTP-based protocol:
 - `X-File-Name` header for filename information
 - `Content-Type: application/octet-stream` for binary data
 
-**Feature Parity:**
+**Feature Support:**
 
 - ✓ Chunked file transfers
 - ✓ API key authentication
-- ✓ Custom filename generators
 - ✓ SQLite buffering (client-side)
-- ✓ Resumable uploads (Python only)
-- ✓ Automatic retry with exponential backoff (Python only)
-- ✓ Server-side chunk tracking (Python only)
-- ✓ CLI interfaces
+- ✓ Resumable uploads (with Node.js server support)
+- ✓ Automatic retry with exponential backoff
+- ✓ CLI interface
 - ✓ Error handling
-
-**Note:** The Python implementation includes advanced features (retry, resume, chunk tracking) not available in the Node.js version.
 
 ## Error Handling
 
