@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""
+IndexedCP CLI Tool
+Command-line interface for file buffering and upload.
+"""
+
+import sys
+import os
+import argparse
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from lib.client import IndexCPClient
+
+
+def show_help():
+    """Display help information."""
+    help_text = """
+IndexedCP - Secure, resumable file transfer tool
+
+Usage:
+    indexcp <command> [options]
+
+Commands:
+    add <file-path>              Add a file to the upload buffer
+    upload <server-url>          Upload all buffered files to server
+    list                         List all buffered files
+    clear                        Clear all buffered files
+    help                         Show this help message
+
+Options:
+    --api-key <key>             API key for authentication (not recommended)
+                                Use INDEXCP_API_KEY environment variable instead
+
+Examples:
+    # Add a file to buffer
+    indexcp add ./myfile.txt
+    
+    # Upload buffered files
+    INDEXCP_API_KEY=abc123 indexcp upload http://localhost:3000/upload
+    
+    # Upload with API key flag (not recommended for security)
+    indexcp upload http://localhost:3000/upload --api-key abc123
+    
+    # List buffered files
+    indexcp list
+    
+    # Clear buffer
+    indexcp clear
+
+Environment Variables:
+    INDEXCP_API_KEY             API key for server authentication
+"""
+    print(help_text)
+
+
+def handle_add(args):
+    """Handle the 'add' command."""
+    if not args.file_path:
+        print("Error: File path is required")
+        print("Usage: indexcp add <file-path>")
+        sys.exit(1)
+    
+    file_path = args.file_path
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File not found: {file_path}")
+        sys.exit(1)
+    
+    try:
+        client = IndexCPClient()
+        client.add_file(file_path)
+        print(f"File {file_path} successfully added to buffer")
+    except Exception as error:
+        print(f"Error adding file: {error}")
+        sys.exit(1)
+
+
+def handle_upload(args):
+    """Handle the 'upload' command."""
+    if not args.server_url:
+        print("Error: Server URL is required")
+        print("Usage: indexcp upload <server-url> [--api-key <key>]")
+        sys.exit(1)
+    
+    server_url = args.server_url
+    api_key = args.api_key
+    
+    if api_key:
+        print("WARNING: Providing API key via command line is not recommended for security reasons.")
+        print("Consider setting the INDEXCP_API_KEY environment variable instead.")
+    
+    try:
+        client = IndexCPClient()
+        if api_key:
+            client.api_key = api_key
+        
+        upload_results = client.upload_buffered_files(server_url)
+        
+        print("\nAll buffered files uploaded successfully")
+        
+        # Display server filename mappings if any differ from client names
+        if upload_results:
+            different_filenames = {
+                client_name: server_name 
+                for client_name, server_name in upload_results.items()
+                if server_name != os.path.basename(client_name)
+            }
+            
+            if different_filenames:
+                print("\nServer-determined filenames:")
+                for client_name, server_name in different_filenames.items():
+                    print(f"  {os.path.basename(client_name)} -> {server_name}")
+                    
+    except Exception as error:
+        print(f"Error uploading files: {error}")
+        sys.exit(1)
+
+
+def handle_list(args):
+    """Handle the 'list' command."""
+    try:
+        client = IndexCPClient()
+        buffered_files = client.list_buffered_files()
+        
+        if not buffered_files:
+            print("No buffered files")
+        else:
+            print(f"Buffered files ({len(buffered_files)}):")
+            for file_name in buffered_files:
+                print(f"  {file_name}")
+                
+    except Exception as error:
+        print(f"Error listing files: {error}")
+        sys.exit(1)
+
+
+def handle_clear(args):
+    """Handle the 'clear' command."""
+    try:
+        client = IndexCPClient()
+        
+        # Confirm before clearing
+        if not args.force:
+            buffered_files = client.list_buffered_files()
+            if buffered_files:
+                print(f"This will clear {len(buffered_files)} buffered file(s):")
+                for file_name in buffered_files:
+                    print(f"  {file_name}")
+                response = input("Are you sure? (y/N): ")
+                if response.lower() != 'y':
+                    print("Operation cancelled")
+                    return
+        
+        client.clear_buffer()
+        print("Buffer cleared successfully")
+        
+    except Exception as error:
+        print(f"Error clearing buffer: {error}")
+        sys.exit(1)
+
+
+def main():
+    """Main entry point for the CLI."""
+    parser = argparse.ArgumentParser(
+        description='IndexedCP - Secure, resumable file transfer tool',
+        add_help=False
+    )
+    
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+    
+    # Add command
+    add_parser = subparsers.add_parser('add', help='Add a file to the upload buffer')
+    add_parser.add_argument('file_path', nargs='?', help='Path to the file to add')
+    
+    # Upload command
+    upload_parser = subparsers.add_parser('upload', help='Upload all buffered files')
+    upload_parser.add_argument('server_url', nargs='?', help='Server URL for upload')
+    upload_parser.add_argument('--api-key', help='API key for authentication')
+    
+    # List command
+    list_parser = subparsers.add_parser('list', help='List all buffered files')
+    
+    # Clear command
+    clear_parser = subparsers.add_parser('clear', help='Clear all buffered files')
+    clear_parser.add_argument('-f', '--force', action='store_true', help='Force clear without confirmation')
+    
+    # Help command
+    help_parser = subparsers.add_parser('help', help='Show help message')
+    
+    # Parse arguments
+    if len(sys.argv) == 1:
+        show_help()
+        sys.exit(0)
+    
+    args = parser.parse_args()
+    
+    # Handle commands
+    if args.command == 'add':
+        handle_add(args)
+    elif args.command == 'upload':
+        handle_upload(args)
+    elif args.command == 'list':
+        handle_list(args)
+    elif args.command == 'clear':
+        handle_clear(args)
+    elif args.command == 'help' or args.command == '--help' or args.command == '-h':
+        show_help()
+    else:
+        print(f"Unknown command: {args.command}")
+        show_help()
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
