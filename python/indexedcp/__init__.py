@@ -1,11 +1,11 @@
 """
-IndexedCP Python Client and Server
+IndexedCP Python Client
 
-A Python implementation of the IndexedCP client and server for secure, efficient, and resumable file transfer.
+A Python implementation of the IndexedCP client for secure, efficient, and resumable file transfer.
+Compatible with the Node.js IndexedCP server.
 """
 
 from .client import IndexCPClient
-from .server import IndexCPServer, create_simple_server
 
 __version__ = "1.0.0"
-__all__ = ["IndexCPClient", "IndexCPServer", "create_simple_server"]
+__all__ = ["IndexCPClient"]
