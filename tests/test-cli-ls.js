@@ -9,8 +9,8 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// Set CLI mode
-process.env.INDEXEDCP_CLI_MODE = 'true';
+// Set storage mode to SQLite for CLI tests (needs persistence)
+process.env.INDEXEDCP_STORAGE_MODE = 'sqlite';
 
 const IndexedCPClient = require('../lib/client');
 

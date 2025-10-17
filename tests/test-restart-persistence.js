@@ -41,7 +41,7 @@ const fs = require('fs');
 const os = require('os');
 
 const TEST_DIR = path.join(__dirname, 'temp-restart-test');
-const DB_PATH = path.join(os.homedir(), '.indexcp', 'db', 'chunks.json');
+const DB_PATH = path.join(os.homedir(), '.indexcp', 'indexcp.db'); // SQLite database file
 
 // Colors for output
 const colors = {
@@ -81,7 +81,7 @@ function createTestFile(filename, content) {
 function runNodeScript(code) {
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['-e', code], {
-      env: { ...process.env, INDEXEDCP_CLI_MODE: 'true' },
+      env: { ...process.env, INDEXEDCP_STORAGE_MODE: 'sqlite' },
       cwd: __dirname
     });
     
