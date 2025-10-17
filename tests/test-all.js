@@ -18,7 +18,7 @@ function log(msg, color = 'reset') {
   console.log(`${colors[color]}${msg}${colors.reset}`);
 }
 
-function runTest(script, name) {
+function runTest(script, name, env = {}) {
   return new Promise((resolve) => {
     log(`\n${'═'.repeat(70)}`, 'cyan');
     log(`Running: ${name}`, 'bold');
@@ -26,7 +26,8 @@ function runTest(script, name) {
 
     const proc = spawn('node', [path.join(__dirname, script)], {
       cwd: path.dirname(__dirname),
-      stdio: 'inherit'
+      stdio: 'inherit',
+      env: { ...process.env, ...env }
     });
 
     proc.on('close', (code) => {
@@ -46,17 +47,17 @@ async function runAllTests() {
   log('═'.repeat(70) + '\n', 'yellow');
 
   const tests = [
-    { script: './test-all-examples.js', name: 'Functional Tests' },
-    { script: './security-test.js', name: 'Security Tests' },
-    { script: './test-restart-persistence.js', name: 'Restart Persistence Tests' },
-    { script: './test-encryption.js', name: 'Encryption Tests' },
-    { script: './test-cli-ls.js', name: 'CLI ls Command Tests' }
+    { script: './test-all-examples.js', name: 'Functional Tests', env: { INDEXEDCP_STORAGE_MODE: 'test' } },
+    { script: './security-test.js', name: 'Security Tests', env: { INDEXEDCP_STORAGE_MODE: 'test' } },
+    { script: './test-restart-persistence.js', name: 'Restart Persistence Tests', env: { INDEXEDCP_STORAGE_MODE: 'sqlite' } },
+    { script: './test-encryption.js', name: 'Encryption Tests', env: { INDEXEDCP_STORAGE_MODE: 'test' } },
+    { script: './test-cli-ls.js', name: 'CLI ls Command Tests', env: { INDEXEDCP_STORAGE_MODE: 'sqlite' } }
   ];
 
   const results = [];
 
   for (const test of tests) {
-    const result = await runTest(test.script, test.name);
+    const result = await runTest(test.script, test.name, test.env || {});
     results.push(result);
   }
 

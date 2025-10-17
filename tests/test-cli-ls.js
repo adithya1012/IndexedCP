@@ -9,8 +9,8 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// Set CLI mode
-process.env.INDEXEDCP_CLI_MODE = 'true';
+// Set storage mode to SQLite for CLI tests (needs persistence)
+process.env.INDEXEDCP_STORAGE_MODE = 'sqlite';
 
 const IndexedCPClient = require('../lib/client');
 
@@ -23,15 +23,16 @@ async function runTest() {
   // Clean up any existing test files and database
   async function cleanup() {
     try {
-      const client = new IndexedCPClient();
-      const db = await client.initDB();
-      const chunks = await db.getAll(client.storeName);
-      for (const chunk of chunks) {
-        await db.delete(client.storeName, chunk.id);
+      // For SQLite mode, just delete the database file
+      const dbPath = path.join(require('os').homedir(), '.indexedcp', 'indexcp.db');
+      if (fs.existsSync(dbPath)) {
+        fs.unlinkSync(dbPath);
+        console.log('✓ Cleaned up IndexedDB (SQLite file deleted)');
+      } else {
+        console.log('✓ IndexedDB clean (no file to delete)');
       }
-      console.log('✓ Cleaned up IndexedDB');
     } catch (error) {
-      console.log('Note: IndexedDB cleanup skipped (may not exist yet)');
+      console.log('Note: IndexedDB cleanup skipped:', error.message);
     }
     
     // Clean up test files

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-// Set CLI mode for filesystem storage
-process.env.INDEXEDCP_CLI_MODE = 'true';
+// Set storage mode for SQLite persistence (unless overridden)
+if (!process.env.INDEXEDCP_STORAGE_MODE) {
+  process.env.INDEXEDCP_STORAGE_MODE = 'sqlite';
+}
 
 const IndexedCPClient = require('../lib/client');
 const { IndexedCPServer } = require('../lib/server');
