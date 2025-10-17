@@ -1,18 +1,18 @@
-
 # indexedcp
 
-**indexedcp** is a Node.js library and CLI toolset for secure, efficient, and resumable file transfer. By default, Node.js environments buffer uploads on disk (`~/.indexcp/db/chunks.json`) so transfers survive restarts, while browser builds fall back to IndexedDB for offline and resumable support.
+**indexedcp** is a Node.js library and CLI toolset for secure, efficient, and resumable file transfer. By default, Node.js environments use **IndexedDBShim + WebSQL (SQLite)** for persistent, transactional storage (`~/.indexcp/db/`), ensuring data survives restarts with full ACID compliance. Browser builds use native IndexedDB for offline and resumable support.
 
 ---
 
 ## Features
 
 - 🔄 Resumable and offline-friendly uploads
-- 📦 Chunked streaming with persistent buffering (filesystem on Node, IndexedDB in browsers)
+- 📦 Chunked streaming with persistent buffering (SQLite-backed IndexedDB on Node, native IndexedDB in browsers)
 - 🔒 API key authentication
 - 🛡️ Path traversal protection
 - 📦 Separate client/server imports for minimal bundle size
 - 🔧 Simple CLI tools
+- 💾 ACID-compliant persistent storage with IndexedDBShim + WebSQL (SQLite)
 
 ---
 
@@ -57,14 +57,46 @@ new IndexCPServer({ port: 3000, outputDir: './uploads' }).listen(3000);
 
 ## Storage Modes
 
-- **Node.js (default):** Chunks persist to the local filesystem at `~/.indexcp/db/chunks.json`, ensuring buffered uploads survive restarts.
-- **Force in-memory IndexedDB:** Set `INDEXCP_CLI_MODE=false` before creating the client to revert to the previous fake-IndexedDB behaviour (useful for ephemeral test runs).
-- **Browsers:** Always use the platform’s IndexedDB implementation; no filesystem access is attempted.
+IndexedCP supports multiple storage backends to suit different use cases:
+
+### Default: IndexedDBShim + WebSQL (SQLite) - Persistent
+- **Node.js default behavior**: Uses SQLite-backed IndexedDB via IndexedDBShim
+- **Location**: `~/.indexcp/db/D_indexcp.sqlite`
+- **Benefits**: 
+  - Full ACID compliance and transactional consistency
+  - Data persists across restarts
+  - Standard IndexedDB API
+  - Better performance than JSON
+- **Use case**: Production use, CLI operations, any scenario requiring durability
+
+### Testing Mode: fake-indexeddb - In-Memory
+- **Enabled with**: `INDEXCP_CLI_MODE=false`
+- **Benefits**:
+  - Fast, ephemeral storage
+  - No filesystem side effects
+  - Perfect for unit tests
+- **Use case**: Automated testing, CI/CD pipelines
 
 ```bash
-# Example: opt into in-memory storage for a single run
+# Example: Run with in-memory storage for testing
 INDEXCP_CLI_MODE=false node upload-script.js
 ```
+
+### Legacy Mode: JSON File Storage
+- **Enabled with**: `INDEXCP_CLI_MODE=json`
+- **Location**: `~/.indexcp/db/chunks.json`
+- **Benefits**: Simple, human-readable format
+- **Use case**: Debugging, backwards compatibility
+
+```bash
+# Example: Use legacy JSON storage
+INDEXCP_CLI_MODE=json node upload-script.js
+```
+
+### Browser Mode: Native IndexedDB
+- **Always active** in browser environments
+- Uses the platform's built-in IndexedDB implementation
+- No configuration needed
 
 ---
 
