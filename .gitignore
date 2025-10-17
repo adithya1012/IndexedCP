@@ -149,6 +149,12 @@ server-keys/*.pem
 .test-*
 uploads/
 uploads-*/
+test*.txt
+test*.bin
+
+# Local database files (SQLite)
+.indexedcp/
+.indexcp/
 
 # Dead code archive (attic)
 .attic/*

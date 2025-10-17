@@ -1,7 +1,7 @@
 
 # indexedcp
 
-**indexedcp** is a Node.js library and CLI toolset for secure, efficient, and resumable file transfer. By default, Node.js environments buffer uploads on disk (`~/.indexcp/db/chunks.json`) so transfers survive restarts, while browser builds fall back to IndexedDB for offline and resumable support.
+**indexedcp** is a Node.js library and CLI toolset for secure, efficient, and resumable file transfer. By default, Node.js environments use SQLite-backed IndexedDB persistence (`~/.indexedcp/*.db`) so transfers survive restarts, while browser builds use native IndexedDB for offline and resumable support.
 
 🔐 **NEW:** [Asymmetric envelope encryption](#-encryption) protects data at rest with per-stream AES keys wrapped by RSA public keys.
 
@@ -10,12 +10,13 @@
 ## Features
 
 - 🔄 Resumable and offline-friendly uploads
-- 📦 Chunked streaming with persistent buffering (filesystem on Node, IndexedDB in browsers)
+- 📦 Chunked streaming with persistent buffering (SQLite on Node, IndexedDB in browsers)
 - 🔒 API key authentication
 - 🔐 **Asymmetric encryption** - End-to-end encrypted storage with offline support
 - 🛡️ Path traversal protection
 - 📦 Separate client/server imports for minimal bundle size
 - 🔧 Simple CLI tools
+- 💾 **Durable SQLite storage** - Production-ready persistence using WebSQL/SQLite backend
 
 ---
 
@@ -115,6 +116,39 @@ const server = new IndexedCPServer({
 - `warn`: Warning messages
 - `error`: Error messages
 - `fatal`: Critical errors only
+
+### Storage Configuration
+
+IndexedCP uses different storage backends depending on the environment:
+
+**Storage Modes:**
+
+- **`sqlite` (default for production)**: Uses WebSQL/SQLite for durable, file-backed persistence in `~/.indexedcp/*.db`
+  - Standard-compliant IndexedDB implementation
+  - Cross-process data persistence
+  - Transactional consistency
+  - Recommended for production use
+
+- **`test`**: Uses fake-indexeddb for in-memory, non-persistent storage
+  - Fast and lightweight
+  - No disk I/O
+  - Perfect for testing
+  - Data cleared on process exit
+
+- **`filesystem` (deprecated)**: Legacy JSON file storage in `~/.indexedcp/db/`
+  - Kept for backward compatibility
+  - Not recommended for new deployments
+
+**Environment Variable:**
+```bash
+export INDEXEDCP_STORAGE_MODE=sqlite  # sqlite, test, or filesystem
+```
+
+**CLI**: The CLI automatically uses SQLite mode for persistence. Tests use in-memory storage by default.
+
+**Database Location:**
+- SQLite databases: `~/.indexedcp/*.db`
+- Legacy filesystem: `~/.indexedcp/db/chunks.json`
 
 ## Documentation of API
 
