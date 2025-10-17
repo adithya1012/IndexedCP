@@ -41,7 +41,8 @@ const fs = require('fs');
 const os = require('os');
 
 const TEST_DIR = path.join(__dirname, 'temp-restart-test');
-const DB_PATH = path.join(os.homedir(), '.indexcp', 'db', 'chunks.json');
+const DB_DIR = path.join(os.homedir(), '.indexcp', 'db');
+const DB_PATH = path.join(DB_DIR, 'D_indexcp.sqlite'); // SQLite database file
 
 // Colors for output
 const colors = {
@@ -63,9 +64,14 @@ function cleanup() {
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
   }
   
-  // Clean up database
-  if (fs.existsSync(DB_PATH)) {
-    fs.unlinkSync(DB_PATH);
+  // Clean up database directory (SQLite files and journals)
+  if (fs.existsSync(DB_DIR)) {
+    const files = fs.readdirSync(DB_DIR);
+    files.forEach(file => {
+      if (file.endsWith('.sqlite') || file.endsWith('.sqlite-journal')) {
+        fs.unlinkSync(path.join(DB_DIR, file));
+      }
+    });
   }
 }
 
@@ -157,15 +163,15 @@ async function testRestartPersistence() {
     log(`✓ Database persisted at ${DB_PATH}`, 'green');
     testsPassed++;
     
-    // Read the database to verify content
-    const dbContent = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-    const chunkCount = Array.isArray(dbContent) ? dbContent.length : 0;
-    log(`✓ Database contains ${chunkCount} chunk(s)`, 'green');
-    
-    if (chunkCount !== 3) {
-      throw new Error(`Expected 3 chunks, found ${chunkCount}`);
+    // Verify database file size (should be non-empty)
+    const dbStats = fs.statSync(DB_PATH);
+    if (dbStats.size === 0) {
+      throw new Error('Database file is empty');
     }
-    testsPassed++;
+    log(`✓ Database file size: ${dbStats.size} bytes`, 'green');
+    
+    // We'll verify chunk count by actually querying the database in the next step
+    // (SQLite databases can't be read as JSON)
     
     // Step 2: Simulate restart - read from database in new process
     log('\n============================================================', 'yellow');
@@ -273,11 +279,11 @@ async function testRestartPersistence() {
       
       async function verifyCleared() {
         const client = new IndexCPClient();
-        const db = await client.db;
+        const db = await client.initDB();
         const tx = db.transaction('chunks', 'readonly');
         const store = tx.objectStore('chunks');
         const chunks = await store.getAll();
-        await tx.done;
+        if (tx.done) await tx.done;
         
         console.log('Chunks remaining: ' + chunks.length);
       }
@@ -288,10 +294,8 @@ async function testRestartPersistence() {
     const result4 = await runNodeScript(verifyScript);
     log(result4.stdout.trim(), 'blue');
     
-    // Check if buffer is empty (either "Chunks remaining: 0" or no database file)
-    const bufferCleared = result4.stdout.includes('Chunks remaining: 0') || 
-                          !fs.existsSync(DB_PATH) ||
-                          JSON.parse(fs.readFileSync(DB_PATH, 'utf8') || '[]').length === 0;
+    // Check if buffer is empty (should show "Chunks remaining: 0")
+    const bufferCleared = result4.stdout.includes('Chunks remaining: 0');
     
     if (!bufferCleared) {
       throw new Error('Buffer was not cleared after successful upload');
